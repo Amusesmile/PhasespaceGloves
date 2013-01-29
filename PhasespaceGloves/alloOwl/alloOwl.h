@@ -16,8 +16,24 @@
 
 #define SERVER_NAME "192.168.0.127"
 #define MARKER_COUNT 180
+#define MARKERS_PER_GLOVE 8
 
 using namespace al;
+
+enum GloveMarkerMap
+{
+    ePinky = 0,
+    eRingFinger = 1,
+    eMiddleFinger = 2,
+    eIndexFinger = 3,
+    eBackHandNearPinky = 4,
+    eBackHandNearThumb = 5,
+    eThumbBase = 6,
+    eThumbTip = 7
+};
+
+//flip the x and z axis to make the spatial data more intuitive
+Vec3f AllosphereScalar(-1.0, 0.0, -1.0);
 
 void owl_print_error(const char *s, int n)
 {
@@ -54,15 +70,18 @@ class PhasespaceManager
 public:
     PhasespaceManager()
     {
+        for(int i = 0;i<MARKER_COUNT;i++)
+        {
+            markerPositions[i] = Vec3f(0.0, 0.0, 0.0);
+            markerNumberOfAbsentFrames[i] = 0;
+        }
     }
     
-    void owl_fetch()
+    void fetchOwl()
     {
         for(int i = 0;i<MARKER_COUNT;i++)
         {
-            
-            markerPositions[i].update(Vec3f(rnd::uniform(-0.5,0.5),rnd::uniform(-0.5,0.5), rnd::uniform(-0.5,0.5)));
-            //cout << markerPositions[i].position.x << endl;
+            markerPositions[i] = Vec3f(rnd::uniform(-0.5,0.5),rnd::uniform(-0.1,0.1), rnd::uniform(-0.0,0.0));
         }
         
 //        int numberOfMarkers = owlGetMarkers(markers, MARKER_COUNT);// get some markers
@@ -74,31 +93,16 @@ public:
 //        }
 //        if(numberOfMarkers > 0)
 //        {
-//            bool gotAtLeastOne = false;
 //            for(int i = 0; i < numberOfMarkers; i++)
 //            {
 //                if(markers[i].cond > 0)
 //                {
-//                    gotAtLeastOne = true;
+//                    markerPositions[i] = Vec3f(markers[i].x, markers[i].y, markers[i].z)*AllosphereScalar;
+//                    markerNumberOfAbsentFrames[i] = 0;
 //                }
-//            }
-//            
-//            if (gotAtLeastOne)
-//            {
-//                for(int i = 0; i < numberOfMarkers; i++)
+//                else
 //                {
-//                    if(markers[i].cond > 0)
-//                    {
-//                        printf("marker: %d	x: %f y: %f z: %f\n", i, markers[i].x, markers[i].y, markers[i].z);
-//                        //                    masterPositions[i].x = markers[i].x*-1.0;
-//                        //                    masterPositions[i].y = markers[i].y;
-//                        //                    masterPositions[i].z = markers[i].z*-1.0;
-//                        //                    inFrameArray[i] = true;
-//                        //
-//                        //                    if(gloveSet == false || (gloveSet2 == false && numberOfGloves > 1)){
-//                        //                        gloveCheck(i);//sets the glove offset value so that we can use any strand of lights.
-//                        //                    }
-//                    }
+//                    markerNumberOfAbsentFrames[i]++;
 //                }
 //            }
 //        }
@@ -109,7 +113,7 @@ public:
         while(1)
         {
             cout << "fetching owl\n";
-            master().owl_fetch();
+            master().fetchOwl();
         }
     }
     
@@ -141,10 +145,10 @@ public:
 //        }
         
         cout << "Starting owl_fetch thread\n";
-        int pthreadErrorCode = pthread_create(&owlThread, NULL, OwlCallback, NULL);
+        int pthreadErrorCode = pthread_create(&fetchOwlThread, NULL, OwlCallback, NULL);
         if (pthreadErrorCode)
         {
-            printf("ERROR; Could't start owlThread. Return code from pthread_create() is %d\n", pthreadErrorCode);
+            printf("ERROR; Could't start fetchOwlThread. Return code from pthread_create() is %d\n", pthreadErrorCode);
             exit(-1);
         }
     }
@@ -152,7 +156,7 @@ public:
     void stopThread()
     {
         owlDone();
-        pthread_cancel(owlThread);
+        pthread_cancel(fetchOwlThread);
     }
     
     static PhasespaceManager& master(){
@@ -160,16 +164,101 @@ public:
         return *master;
     }
     
-    KinematicState* getStates()
+    Vec3f* getMarkerPositions()
     {
         return master().markerPositions;
     }
     
+    void getMarkers(Vec3f* positions, int* frames, int offset, int howMany)
+    {
+        for(int i = 0;i<howMany;i++)
+        {
+            positions[i] = markerPositions[i+offset];
+            frames[i] = markerNumberOfAbsentFrames[i+offset];
+        }
+    }
+    
 private:
-    pthread_t owlThread;
+    pthread_t fetchOwlThread;
     OWLMarker markers[MARKER_COUNT];
-    KinematicState markerPositions[MARKER_COUNT];
+    Vec3f markerPositions[MARKER_COUNT];
     int markerNumberOfAbsentFrames[MARKER_COUNT];
+};
+
+class PhasespaceGlove
+{
+    //holds position information about 8 sequentially numbered markers tracked by PhasespaceManager. Can also draw itself for debugging purposes. 
+public:
+    PhasespaceGlove(int _markerOffset = 0, float _hue = 0.0) : markerOffset(_markerOffset), hue(_hue)
+    {
+        for(int i = 0;i<MARKERS_PER_GLOVE;i++)
+        {
+            markerPositions[i] = Vec3f(0.0, 0.0, 0.0);
+            numberOfAbsentFrames[i] = 0;
+        }
+    }
+    
+    void setMarkerOffset(int _markerOffset)
+    {
+        markerOffset = _markerOffset;
+    }
+    
+    void fetchOwl()
+    {
+        //grabs the position and absent frame information from the master (global) marker manager
+        PhasespaceManager::master().getMarkers(markerPositions, numberOfAbsentFrames, markerOffset, MARKERS_PER_GLOVE);
+    }
+    
+    void updateCentroid()
+    {
+        Vec3f tempCentroid(0.0, 0.0, 0.0);
+        for(int i = 0;i<MARKERS_PER_GLOVE;i++)
+        {
+            tempCentroid += markerPositions[i];
+        }
+        centroid.update(tempCentroid/(float)MARKERS_PER_GLOVE);
+    }
+    
+    void onDraw(Graphics& g)
+    {
+        fetchOwl();
+        updateCentroid();
+        
+        g.lineWidth(100.0);
+        g.color(Color(HSV(hue, 1.0, 1.0),1.0));
+        g.begin(g.POINTS);
+        for(int i = 0;i<MARKERS_PER_GLOVE;i++)
+        {
+            g.vertex(markerPositions[i]);
+        }
+        g.end();
+        
+        g.pointSize(100.0);
+        g.color(Color(HSV(0.0, 0.0, 1.0),1.0));
+		g.begin(g.LINES);
+        g.vertex(markerPositions[ePinky]);
+        g.vertex(markerPositions[eBackHandNearPinky]);
+        g.vertex(markerPositions[eRingFinger]);
+        g.end();
+        g.begin(g.LINES);
+        g.vertex(markerPositions[eMiddleFinger]);
+        g.vertex(markerPositions[eBackHandNearThumb]);
+        g.vertex(markerPositions[eIndexFinger]);
+        g.end();
+        g.begin(g.LINES);
+        g.vertex(markerPositions[eBackHandNearPinky]);
+        g.vertex(markerPositions[eBackHandNearThumb]);
+        g.vertex(markerPositions[eThumbBase]);
+        g.vertex(markerPositions[eThumbTip]);
+        g.end();
+    }
+    
+private:
+    int markerOffset;
+    Vec3f markerPositions[MARKERS_PER_GLOVE];
+    int numberOfAbsentFrames[MARKERS_PER_GLOVE];
+    KinematicState centroid;
+    float hue;
 };
 
 #endif

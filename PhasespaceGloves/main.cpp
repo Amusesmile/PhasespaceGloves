@@ -33,7 +33,8 @@ struct MyApp : OmniApp {
 //    Mesh mesh;
 //    Light light;
     
-    MyApp() {
+    MyApp() : leftGlove(0, 0.5), rightGlove(8, 0.0)
+    {
         mesh.primitive(Graphics::TRIANGLES);
         addSphere(mesh, 1.0, 32, 32);
         for (int i = 0; i < mesh.vertices().size(); ++i) {
@@ -46,6 +47,9 @@ struct MyApp : OmniApp {
         
         Image img("/Users/joshuadickinson/Documents/allo/AlloSystem/examples/joshua.dickinson/PhasespaceGloves/PhasespaceGloves/textures/grunge1.jpg");
         tex.allocate(img.array());
+        
+        phasespaceManager = PhasespaceManager::master();
+        phasespaceManager.startThread("192.168.0.127");
     }
     
     virtual ~MyApp() {}
@@ -54,37 +58,39 @@ struct MyApp : OmniApp {
         light();
         // say how much lighting you want
         shader().uniform("lighting", 1.0);
-        g.draw(mesh);
-        
+//        g.draw(mesh);
+//        
         g.antialiasing(Graphics::NICEST);
         g.depthTesting(true);
         g.blending(true);
-        g.shadeModel(Graphics::SMOOTH);
-        KinematicState *markerPositions = phasespaceManager.getStates();
-        for (int i = 0; i < 20; ++i)
-        {
-            tex.bind();
-            g.pushMatrix();
-            g.color(cohenColor(i));
-            g.translate(Vec3f(1.0,1.0,1.0*i));
-            //g.translate(markerPositions[i].acceleration);
-            g.rotate((360.0/20.0)*i, 0.0, 0.0, 1.0);
-            
-            g.begin(g.TRIANGLES);
-			g.vertex(-1, -1);
-			//g.vertex( 1, -1);
-			g.vertex( 1,  1);
-			g.vertex(-1,  1);
-            g.texCoord(0,0);
-			g.texCoord(.1,0);
-			g.texCoord(.1,.1);
-			g.texCoord(0,.1);
-            g.end();
-            
-            //g.draw(mesh);
-            g.popMatrix();
-            tex.unbind();
-        }
+//        g.shadeModel(Graphics::SMOOTH);
+//        Vec3f *markerPositions = phasespaceManager.getMarkerPositions();
+//        for (int i = 0; i < 20; ++i)
+//        {
+//            tex.bind();
+//            g.pushMatrix();
+//            g.color(cohenColor(i));
+//            g.translate(Vec3f(1.0,1.0,1.0*i));
+//            g.translate(markerPositions[i]);
+//            g.rotate((360.0/20.0)*i, 0.0, 0.0, 1.0);
+//            
+//            g.begin(g.TRIANGLES);
+//			g.vertex(-1, -1);
+//			//g.vertex( 1, -1);
+//			g.vertex( 1,  1);
+//			g.vertex(-1,  1);
+//            g.texCoord(0,0);
+//			g.texCoord(.1,0);
+//			g.texCoord(.1,.1);
+//			g.texCoord(0,.1);
+//            g.end();
+//            
+//            //g.draw(mesh);
+//            g.popMatrix();
+//            tex.unbind();
+//        }
+        leftGlove.onDraw(g);
+        rightGlove.onDraw(g);
 
     }
     
@@ -117,7 +123,6 @@ struct MyApp : OmniApp {
     {
         if (k.key() == ' ')
         {
-            printf("another color\n");
             float temp = rnd::uniform(0.0, 0.7);
             cohenColor.set(rand()%2, rand()%3, 10, temp, temp+.3);
         }
@@ -125,6 +130,8 @@ struct MyApp : OmniApp {
     }
 
     PhasespaceManager phasespaceManager;
+    PhasespaceGlove leftGlove, rightGlove;
+    
     SearchPaths searchpaths;
     Material material;
     Light light;
